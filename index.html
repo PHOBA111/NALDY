@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Interactif avec Firestore</title>
+    <!-- Inclusion de Google Fonts pour la police Roboto -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Inclusion de Font Awesome pour les icônes -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Inclusion de Vue.js depuis un CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.2.47/dist/vue.global.js"></script>
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDpTQ6dbgMct-_4pPozx7_7rxRYoC0ygjo",
+            authDomain: "phoba-a38c0.firebaseapp.com",
+            projectId: "phoba-a38c0",
+            storageBucket: "phoba-a38c0.appspot.com",
+            messagingSenderId: "804271891120",
+            appId: "1:804271891120:web:40ff5d34f50e30a4b4d175"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        // Vue.js instance
+        Vue.createApp({
+            data() {
+                return {
+                    currentView: 'home',
+                    summaries: [],
+                    currentSummary: null,
+                    currentQuiz: null,
+                    currentQuestionIndex: 0,
+                    score: 0,
+                    username: '',
+                    password: '',
+                    newSummaryTitle: '',
+                    newSummaryContent: '',
+                    newQuizTitle: '',
+                    newQuestion: '',
+                    newAnswers: ['', '', '', '', ''],
+                    correctAnswerIndex: null,
+                    scoreHistory: [],
+                    editingSummary: null,
+                    showingQuestions: false,
+                    editingQuestion: null
+                };
+            },
+            methods: {
+                async initializeData() {
+                    const summariesSnap = await getDocs(collection(db, "summaries"));
+                    if (summariesSnap.empty) {
+                        await addDoc(collection(db, "summaries"), {
+                            title: "Résumé de Culture Générale",
+                            content: "<p>La culture générale englobe un large éventail de connaissances.</p>",
+                            quizId: "quiz1"
+                        });
+                        await addDoc(collection(db, "summaries"), {
+                            title: "Résumé de Sciences",
+                            content: "<p>Les sciences regroupent diverses disciplines.</p>",
+                            quizId: "quiz2"
+                        });
+                        console.log("Données initiales ajoutées à la collection 'summaries'.");
+                    }
+
+                    const quizzesSnap = await getDocs(collection(db, "quizzes"));
+                    if (quizzesSnap.empty) {
+                        await addDoc(collection(db, "quizzes"), {
+                            title: "Quiz de Culture Générale",
+                            questions: [
+                                {
+                                    question: "Quelle est la capitale de la France ?",
+                                    answers: ["Londres", "Berlin", "Paris", "Madrid", "Rome"],
+                                    correctAnswer: 2
+                                },
+                                {
+                                    question: "Qui a peint la Joconde ?",
+                                    answers: ["Van Gogh", "Picasso", "Da Vinci", "Monet", "Rembrandt"],
+                                    correctAnswer: 2
+                                }
+                            ]
+                        });
+                        await addDoc(collection(db, "quizzes"), {
+                            title: "Quiz de Sciences",
+                            questions: [
+                                {
+                                    question: "Quel est le symbole chimique de l'or ?",
+                                    answers: ["Au", "Ag", "Fe", "Cu", "Hg"],
+                                    correctAnswer: 0
+                                },
+                                {
+                                    question: "Quelle planète est surnommée la planète rouge ?",
+                                    answers: ["Jupiter", "Vénus", "Saturne", "Mars", "Neptune"],
+                                    correctAnswer: 3
+                                }
+                            ]
+                        });
+                        console.log("Données initiales ajoutées à la collection 'quizzes'.");
+                    }
+                },
+                async fetchSummaries() {
+                    const querySnapshot = await getDocs(collection(db, "summaries"));
+                    this.summaries = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                },
+                async fetchQuiz(quizId) {
+                    const snapshot = await getDocs(collection(db, "quizzes"));
+                    const quizData = snapshot.docs.find(doc => doc.id === quizId);
+                    return quizData ? { id: quizData.id, ...quizData.data() } : null;
+                },
+                async showSummaryList() {
+                    await this.fetchSummaries();
+                    this.currentView = 'summaryList';
+                },
+                async showSummary(summaryId) {
+                    this.currentSummary = this.summaries.find(s => s.id === summaryId);
+                    this.currentQuiz = await this.fetchQuiz(this.currentSummary.quizId);
+                    this.currentView = 'summary';
+                },
+                startQuiz() {
+                    this.currentQuestionIndex = 0;
+                    this.score = 0;
+                    this.currentView = 'quiz';
+                },
+                async answerQuestion(answerIndex) {
+                    if (answerIndex === this.currentQuiz.questions[this.currentQuestionIndex].correctAnswer) {
+                        this.score++;
+                    }
+                    this.currentQuestionIndex++;
+                    if (this.currentQuestionIndex >= this.currentQuiz.questions.length) {
+                        this.scoreHistory.push({
+                            pseudo: prompt("Entrez votre pseudo :"),
+                            quizTitle: this.currentQuiz.title,
+                            score: this.score,
+                            total: this.currentQuiz.questions.length
+                        });
+                        this.goHome(); // Retour à la page d'accueil après le quiz
+                    }
+                },
+                showLoginForm() {
+                    this.currentView = 'login';
+                },
+                async login() {
+                    if (this.username === 'admin' && this.password === 'admin') {
+                        this.currentView = 'admin';
+                        await this.fetchSummaries();
+                    } else {
+                        alert('Identifiants incorrects');
+                    }
+                },
+                async addQuestion() {
+                    if (this.newQuestion && this.newAnswers.every(a => a) && this.correctAnswerIndex) {
+                        const quizRef = doc(db, "quizzes", this.currentQuiz.id);
+                        const updatedQuestions = this.currentQuiz.questions.concat({
+                            question: this.newQuestion,
+                            answers: [...this.newAnswers],
+                            correctAnswer: this.correctAnswerIndex - 1
+                        });
+                        await updateDoc(quizRef, { questions: updatedQuestions });
+                        this.resetQuestionFields();
+                        this.currentQuiz = await this.fetchQuiz(this.currentQuiz.id); // Met à jour le quiz après l'ajout
+                    } else {
+                        alert('Veuillez remplir tous les champs');
+                    }
+                },
+                resetQuestionFields() {
+                    this.newQuestion = '';
+                    this.newAnswers = ['', '', '', '', ''];
+                    this.correctAnswerIndex = null;
+                },
+                async saveSummaryAndQuiz() {
+                    if (this.newSummaryTitle && this.newSummaryContent && this.newQuizTitle) {
+                        const newQuizRef = await addDoc(collection(db, "quizzes"), {
+                            title: this.newQuizTitle,
+                            questions: []
+                        });
+
+                        await addDoc(collection(db, "summaries"), {
+                            title: this.newSummaryTitle,
+                            content: this.newSummaryContent,
+                            quizId: newQuizRef.id // Enregistre l'ID du quiz associé
+                        });
+
+                        this.resetSummaryFields();
+                        alert('Nouveau résumé et quiz créés');
+                    } else {
+                        alert('Veuillez remplir tous les champs');
+                    }
+                },
+                resetSummaryFields() {
+                    this.newSummaryTitle = '';
+                    this.newSummaryContent = '';
+                    this.newQuizTitle = '';
+                },
+                async deleteSummary(summaryId) {
+                    if (confirm('Êtes-vous sûr de vouloir supprimer ce résumé et le quiz associé ?')) {
+                        const summaryRef = doc(db, "summaries", summaryId);
+                        await deleteDoc(summaryRef);
+                        // Suppression du quiz associé
+                        const quizSnapshot = await getDocs(collection(db, "quizzes"));
+                        const quizToDelete = quizSnapshot.docs.find(doc => doc.data().id === summaryId);
+                        if (quizToDelete) {
+                            await deleteDoc(doc(db, "quizzes", quizToDelete.id));
+                        }
+                        await this.fetchSummaries();
+                    }
+                },
+                async showQuestions(quizId) {
+                    this.currentQuiz = await this.fetchQuiz(quizId);
+                    this.showingQuestions = true;
+                },
+                hideQuestions() {
+                    this.showingQuestions = false;
+                },
+                editQuestion(index) {
+                    this.editingQuestion = index;
+                },
+                async saveEditedQuestion() {
+                    const questionRef = doc(db, "quizzes", this.currentQuiz.id);
+                    const updatedQuestions = [...this.currentQuiz.questions];
+                    updatedQuestions[this.editingQuestion] = {
+                        ...updatedQuestions[this.editingQuestion],
+                        question: this.currentQuiz.questions[this.editingQuestion].question,
+                        answers: this.currentQuiz.questions[this.editingQuestion].answers,
+                        correctAnswer: this.currentQuiz.questions[this.editingQuestion].correctAnswer
+                    };
+                    await updateDoc(questionRef, { questions: updatedQuestions });
+                    this.editingQuestion = null;
+                    this.currentQuiz = await this.fetchQuiz(this.currentQuiz.id);
+                },
+                cancelEditingQuestion() {
+                    this.editingQuestion = null;
+                },
+                goHome() {
+                    this.currentView = 'home';
+                },
+                showHistory() {
+                    this.currentView = 'history';
+                },
+                getMention(score, total) {
+                    const percentage = (score / total) * 100;
+                    if (percentage === 100) {
+                        return '🥇 Excellent ! Vous avez obtenu un score parfait !';
+                    } else if (percentage >= 80) {
+                        return '🎉 Très bien !';
+                    } else if (percentage >= 60) {
+                        return '👍 Bien joué !';
+                    } else if (percentage >= 40) {
+                        return '😐 Peut mieux faire.';
+                    } else {
+                        return '😞 Échec. Réessayez !';
+                    }
+                }
+            },
+            created() {
+                this.initializeData().then(() => {
+                    this.fetchSummaries();
+                });
+            }
+        }).mount('#app');
+    </script>
+    <style>
+        /* Styles pour la mise en page mobile */
+        body {
+            font-family: 'Roboto', sans-serif; /* Utilisation de la police Roboto */
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            border-radius: 10px;
+        }
+        h1, h2, h3 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        img.banner {
+            width: 100%; /* Ajuste la largeur de l'image à 100% */
+            height: auto; /* Maintient le rapport d'aspect */
+            border-radius: 10px; /* Ajoute des coins arrondis */
+            margin-bottom: 20px; /* Espace en dessous de l'image */
+        }
+        button {
+            display: flex; /* Utilise flexbox pour aligner le contenu */
+            align-items: center; /* Centre verticalement */
+            justify-content: center; /* Centre horizontalement */
+            width: 100%;
+            padding: 10px 20px;
+            margin: 10px 0;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            font-size: 16px; /* Augmente la taille de la police */
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button i { /* Style pour les icônes */
+            margin-right: 8px; /* Espace entre l'icône et le texte */
+        }
+        .hidden {
+            display: none; /* Cacher les sections non visibles */
+        }
+        .login-form, .admin-panel, .history, .summary {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        input[type="text"], input[type="password"], input[type="file"], textarea {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .score {
+            text-align: center;
+            font-size: 1.2em;
+            margin-top: 20px;
+        }
+        .summary-content {
+            text-align: justify;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .grid-item {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .grid-item h3 {
+            margin-top: 0;
+        }
+        .grid-item button {
+            width: auto;
+            padding: 5px 10px;
+            margin: 5px 5px 5px 0;
+            display: inline-block;
+        }
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .history-table th, .history-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        .history-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .history-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .history-table tr:hover {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+<div id="app" class="container">
+    <div v-if="currentView === 'home'">
+        <h1>Bienvenue au Quiz Interactif</h1>
+        <!-- Bannière d'image ajoutée -->
+        <img src="drapeau.png" alt="Bannière du quiz" class="banner"> 
+        <div class="home-buttons">
+            <button @click="showSummaryList"><i class="fas fa-book"></i> Résumés et Quiz</button>
+            <button @click="showLoginForm"><i class="fas fa-user-lock"></i> Administration</button>
+            <button @click="showHistory"><i class="fas fa-history"></i> Historique des scores</button>
+        </div>
+    </div>
+
+    <div v-if="currentView === 'summaryList'" class="summary-list">
+        <h2>Choisissez un Résumé</h2>
+        <button v-for="summary in summaries" :key="summary.id" @click="showSummary(summary.id)">
+            <i class="fas fa-file-alt"></i> {{ summary.title }}
+        </button>
+        <button @click="goHome"><i class="fas fa-arrow-left"></i> Retour à l'accueil</button>
+    </div>
+
+    <div v-if="currentView === 'summary'" class="summary">
+        <h2>{{ currentSummary.title }}</h2>
+        <div class="summary-content" v-html="currentSummary.content"></div>
+        <button @click="startQuiz"><i class="fas fa-play-circle"></i> Commencer le Quiz</button>
+        <button @click="showSummaryList"><i class="fas fa-arrow-left"></i> Retour à la liste des résumés</button>
+    </div>
+
+    <div v-if="currentView === 'quiz'" class="quiz">
+        <h2>{{ currentQuiz.title }}</h2>
+        <div v-if="currentQuestionIndex < currentQuiz.questions.length">
+            <h3>{{ currentQuiz.questions[currentQuestionIndex].question }}</h3>
+            <button v-for="(answer, index) in currentQuiz.questions[currentQuestionIndex].answers" 
+                    :key="index" 
+                    @click="answerQuestion(index)">
+                {{ answer }}
+            </button>
+        </div>
+        <div v-else>
+            <h3>Quiz terminé !</h3>
+            <p class="score">Votre score : {{ score }} / {{ currentQuiz.questions.length }}</p>
+            <button @click="showSummaryList"><i class="fas fa-arrow-left"></i> Retour à la liste des résumés</button>
+        </div>
+    </div>
+
+    <div v-if="currentView === 'login'" class="login-form">
+        <h2>Connexion Administrateur</h2>
+        <input v-model="username" type="text" placeholder="Nom d'utilisateur">
+        <input v-model="password" type="password" placeholder="Mot de passe">
+        <button @click="login"><i class="fas fa-sign-in-alt"></i> Se connecter</button>
+        <button @click="goHome"><i class="fas fa-arrow-left"></i> Retour à l'accueil</button>
+    </div>
+
+    <div v-if="currentView === 'admin'" class="admin-panel">
+        <h2>Panel d'Administration</h2>
+        <h3>Ajouter un nouveau résumé et quiz</h3>
+        <input v-model="newSummaryTitle" type="text" placeholder="Titre du résumé">
+        <textarea v-model="newSummaryContent" placeholder="Contenu du résumé"></textarea>
+        <input v-model="newQuizTitle" type="text" placeholder="Titre du quiz">
+        <h3>Ajouter une question</h3>
+        <input v-model="newQuestion" type="text" placeholder="Question">
+        <input v-for="n in 5" :key="n" v-model="newAnswers[n-1]" type="text" :placeholder="'Réponse ' + n">
+        <label for="correctAnswerIndex">Index de la bonne réponse (1-5) :</label>
+        <input v-model="correctAnswerIndex" type="number" min="1" max="5" placeholder="Index de la bonne réponse (1-5)">
+        
+        <button @click="addQuestion"><i class="fas fa-plus"></i> Ajouter la question</button>
+        <button @click="saveSummaryAndQuiz"><i class="fas fa-save"></i> Enregistrer le résumé et le quiz</button>
+        
+        <h3>Liste des Résumés et Quiz</h3>
+        <div class="grid-container">
+            <div v-for="summary in summaries" :key="summary.id" class="grid-item">
+                <h3>{{ summary.title }}</h3>
+                <button @click="editSummary(summary.id)"><i class="fas fa-edit"></i> Modifier</button>
+                <button @click="deleteSummary(summary.id)"><i class="fas fa-trash-alt"></i> Supprimer</button>
+                <button @click="showQuestions(summary.quizId)"><i class="fas fa-question-circle"></i> Voir les questions</button>
+            </div>
+        </div>
+        
+        <div v-if="showingQuestions">
+            <h3>Questions pour {{ currentQuiz.title }}</h3>
+            <div v-for="(question, index) in currentQuiz.questions" :key="index">
+                <h4>{{ question.question }}</h4>
+                <ul>
+                    <li v-for="(answer, answerIndex) in question.answers" :key="answerIndex">
+                        {{ answer }} {{ answerIndex === question.correctAnswer ? '(Correct)' : '' }}
+                    </li>
+                </ul>
+                <button @click="editQuestion(index)"><i class="fas fa-edit"></i> Modifier</button>
+                <button @click="deleteQuestion(index)"><i class="fas fa-trash-alt"></i> Supprimer</button>
+            </div>
+            <button @click="hideQuestions"><i class="fas fa-arrow-left"></i> Fermer</button>
+        </div>
+
+        <div v-if="editingQuestion !== null">
+            <h3>Modifier la question</h3>
+            <input v-model="currentQuiz.questions[editingQuestion].question" type="text">
+            <input v-for="(answer, index) in currentQuiz.questions[editingQuestion].answers" 
+                   :key="index" 
+                   v-model="currentQuiz.questions[editingQuestion].answers[index]" 
+                   type="text">
+            <label for="editingCorrectAnswer">Index de la bonne réponse :</label>
+            <input v-model="currentQuiz.questions[editingQuestion].correctAnswer" type="number" min="0" max="4">
+            <button @click="saveEditedQuestion"><i class="fas fa-save"></i> Enregistrer les modifications</button>
+            <button @click="cancelEditingQuestion"><i class="fas fa-times"></i> Annuler</button>
+        </div>
+
+        <button @click="goHome"><i class="fas fa-sign-out-alt"></i> Déconnexion</button>
+    </div>
+
+    <div v-if="currentView === 'history'" class="history">
+        <h2>Historique des Scores</h2>
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th>Pseudo</th>
+                    <th>Quiz</th>
+                    <th>Score</th>
+                    <th>Total</th>
+                    <th>Pourcentage</th>
+                    <th>Mention</th> <!-- Nouvelle colonne pour les mentions -->
+                </tr>
+            </thead>
+            <tbody>
+                <tr v-for="(entry, index) in scoreHistory" :key="index">
+                    <td>{{ entry.pseudo }}</td>
+                    <td>{{ entry.quizTitle }}</td>
+                    <td>{{ entry.score }}</td>
+                    <td>{{ entry.total }}</td>
+                    <td>{{ ((entry.score / entry.total) * 100).toFixed(2) }}%</td>
+                    <td>{{ getMention(entry.score, entry.total) }}</td> <!-- Affichage de la mention -->
+                </tr>
+            </tbody>
+        </table>
+        <button @click="goHome"><i class="fas fa-arrow-left"></i> Retour à l'accueil</button>
+    </div>
+</div>
+</body>
+</html>
